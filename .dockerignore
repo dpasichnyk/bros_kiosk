@@ -1,0 +1,15 @@
+.git
+.gitignore
+.dockerignore
+bin/
+kiosk_cache/
+coverage.out
+*.log
+.DS_Store
+.idea
+.vscode
+task.md
+audit_report.md
+implementation_plan.md
+walkthrough.md
+*.md

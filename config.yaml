@@ -1,0 +1,43 @@
+server:
+  port: 8081
+  host: "0.0.0.0"
+  update_interval: "5s"
+
+slideshow:
+  interval: "30s"
+  shuffle: true
+  transition: "ken-burns"
+  target_resolution:
+    width: 1280
+    height: 720
+  sources:
+    - type: "local"
+      path: "./assets/photos"
+
+ui:
+  locale: "en-US"
+  time_format: "24h"
+  orientation: "landscape"
+
+sections:
+  - id: "weather"
+    region: "center"
+    type: "weather"
+    interval: "10m"
+    weather:
+      api_key: "${WEATHER_API_KEY}"
+      city: "London"
+      units: "metric"
+  - id: "news"
+    region: "top-left"
+    type: "rss"
+    rss:
+      url: "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en"
+  - id: "my-calendar"
+    region: "top-right"
+    type: "calendar"
+    calendars:
+      - type: "ical"
+        url: "https://www.officeholidays.com/ics/germany/bavaria"
+        name: "Holidays"
+

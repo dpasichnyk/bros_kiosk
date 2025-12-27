@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="{{ .Config.UI.Locale }}">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bros Kiosk</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400&display=swap" rel="stylesheet">
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@48,400,0,0" />
+</head>
+
+<body class="{{ .Config.UI.Orientation }} {{ .Config.UI.TimeFormat }}">
+    <div id="slideshow">
+        <div class="slide active" style="background-image: url('/static/placeholder.jpg')"></div>
+        <div class="slide next"></div>
+    </div>
+
+    <div class="container">
+        <div class="region region-top-left">
+            {{ range .Layout.TopLeft }}
+            {{ template "widget" . }}
+            {{ end }}
+        </div>
+
+        <div class="region region-center">
+            <div class="module clock-widget">
+                <div class="time" id="clock-time">--:--</div>
+                <div class="date" id="clock-date">Loading...</div>
+            </div>
+
+            {{ range .Layout.Center }}
+            {{ template "widget" . }}
+            {{ end }}
+        </div>
+
+        <div class="region region-top-right">
+            {{ range .Layout.TopRight }}
+            {{ template "widget" . }}
+            {{ end }}
+        </div>
+    </div>
+
+    {{ define "widget" }}
+    <div class="module" id="section-{{ .ID }}" data-section-id="{{ .ID }}" data-type="{{ .Type }}">
+        {{ if eq .Type "rss" }}
+        <div class="module-header">
+            <h2>News</h2>
+        </div>
+        <div class="module-content" data-field="items">
+            <div class="loading">Loading news...</div>
+        </div>
+        {{ else if eq .Type "weather" }}
+        <div class="module-content">
+            <div class="weather-main">
+                <span class="weather-icon wi wi-default" data-field="icon"></span>
+                <span class="temp" data-field="temp">--°</span>
+            </div>
+            <div class="condition" data-field="condition">--</div>
+            <div class="weather-details">
+                <span data-field="city">--</span>
+            </div>
+        </div>
+        {{ else if eq .Type "calendar" }}
+        <div class="module-header">
+            <h2>Calendar</h2>
+        </div>
+        <div class="module-content" data-field="events">
+            <div class="loading">Loading events...</div>
+        </div>
+        {{ end }}
+    </div>
+    {{ end }}
+
+    </div>
+
+    <script>
+        window.KIOSK_CONFIG = {
+            locale: "{{ .Config.UI.Locale }}",
+            timeFormat: "{{ .Config.UI.TimeFormat }}",
+            updateInterval: "{{ .Config.Server.UpdateInterval }}",
+            slideshow: {
+                interval: "{{ .Config.Slideshow.Interval }}",
+                transition: "{{ .Config.Slideshow.Transition }}"
+            }
+        };
+    </script>
+    <script src="/static/app.js"></script>
+</body>
+
+</html>
