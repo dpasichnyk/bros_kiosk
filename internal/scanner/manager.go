@@ -43,8 +43,6 @@ func (m *Manager) Scan(ctx context.Context) error {
 
 	for res := range ch {
 		if res.err != nil {
-			// For now, return the first error.
-			// In production, we might want to log this and continue with partial results.
 			return res.err
 		}
 		allPhotos = append(allPhotos, res.files...)

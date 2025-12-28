@@ -39,8 +39,7 @@ func (c *DiskCache) Put(key string, img image.Image) (string, error) {
 	defer c.mu.Unlock()
 
 	path := c.getFilePath(key)
-	
-	// Check if already exists to avoid re-writing
+
 	if _, err := os.Stat(path); err == nil {
 		return path, nil
 	}
@@ -54,6 +53,6 @@ func (c *DiskCache) Put(key string, img image.Image) (string, error) {
 
 func (c *DiskCache) getFilePath(key string) string {
 	hash := sha256.Sum256([]byte(key))
-	filename := hex.EncodeToString(hash[:]) + ".jpg" // Standardize on JPG for cache
+	filename := hex.EncodeToString(hash[:]) + ".jpg"
 	return filepath.Join(c.baseDir, filename)
 }

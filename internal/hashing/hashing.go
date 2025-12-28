@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 )
 
-// Hash generates a SHA-256 hash of the given data.
 func Hash(data interface{}) (string, error) {
 	b, err := json.Marshal(data)
 	if err != nil {

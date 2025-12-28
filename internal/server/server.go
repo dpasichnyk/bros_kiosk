@@ -18,6 +18,7 @@ import (
 	"bros_kiosk/internal/cache"
 	"bros_kiosk/internal/config"
 	"bros_kiosk/internal/images"
+	"bros_kiosk/internal/renderer"
 	"bros_kiosk/internal/scanner"
 	"bros_kiosk/pkg/fetcher"
 
@@ -37,65 +38,76 @@ type DashboardServer struct {
 	templates *template.Template
 	cache     *cache.Cache
 
-	manager    *fetcher.Manager
-	state      map[string]fetcher.Result
-	mu         sync.RWMutex
-	imageCache *images.DiskCache
-	scannerMgr *scanner.Manager
+	manager       *fetcher.Manager
+	state         map[string]fetcher.Result
+	mu            sync.RWMutex
+	imageCache    *images.DiskCache
+	scannerMgr    *scanner.Manager
+	imageRenderer renderer.Renderer
 }
 
 func New(cfg *config.Config) *DashboardServer {
 	mux := http.NewServeMux()
 
-	// Parse templates from embedded FS
 	tmpl := template.Must(template.ParseFS(assets.FS, "templates/*.html"))
 
-	// Initialize Image Cache
-	// Use local directory for persistent cache to avoid re-processing on restart
 	imgCache, err := images.NewDiskCache("./kiosk_cache")
 	if err != nil {
 		panic(err)
 	}
 
-	// Initialize Scanners
 	var scanners []scanner.Scanner
 	for _, src := range cfg.Slideshow.Sources {
 		if src.Type == "local" {
 			scanners = append(scanners, scanner.NewLocalScanner(src.Path))
 		} else if src.Type == "s3" {
-			cfg, err := awsconfig.LoadDefaultConfig(context.Background())
+			awsCfg, err := awsconfig.LoadDefaultConfig(context.Background())
 			if err != nil {
 				slog.Error("Unable to load SDK config, s3 scanner disabled", "error", err)
 				continue
 			}
-			client := s3.NewFromConfig(cfg)
+			client := s3.NewFromConfig(awsCfg)
 			scanners = append(scanners, scanner.NewS3Scanner(client, src.Bucket, src.Prefix))
 		}
 	}
 	scanMgr := scanner.NewManager(scanners...)
 
-	srv := &DashboardServer{
-		config:     cfg,
-		stopCh:     make(chan os.Signal, 1),
-		templates:  tmpl,
-		cache:      cache.New(),
-		manager:    fetcher.NewManager(),
-		state:      make(map[string]fetcher.Result),
-		imageCache: imgCache,
-		scannerMgr: scanMgr,
+	ggRenderer, err := renderer.NewGGRenderer()
+	if err != nil {
+		slog.Error("Failed to initialize image renderer", "error", err)
 	}
 
-	// Start initial scan in background
+	var imageRenderer renderer.Renderer = ggRenderer
+	if ggRenderer != nil {
+		cacheTTL := 5 * time.Second
+		if cfg.Server.UpdateInterval != "" {
+			if d, err := time.ParseDuration(cfg.Server.UpdateInterval); err == nil {
+				cacheTTL = d
+			}
+		}
+		imageRenderer = renderer.NewCachedRenderer(ggRenderer, cacheTTL)
+	}
+
+	srv := &DashboardServer{
+		config:        cfg,
+		stopCh:        make(chan os.Signal, 1),
+		templates:     tmpl,
+		cache:         cache.New(),
+		manager:       fetcher.NewManager(),
+		state:         make(map[string]fetcher.Result),
+		imageCache:    imgCache,
+		scannerMgr:    scanMgr,
+		imageRenderer: imageRenderer,
+	}
+
 	go func() {
 		if err := scanMgr.Scan(context.Background()); err != nil {
 			slog.Error("Initial photo scan failed", "error", err)
 		}
 	}()
 
-	// Register fetchers from config
 	for _, sec := range cfg.Sections {
-		// Determine interval
-		interval := 15 * time.Minute // Default
+		interval := 15 * time.Minute
 		if sec.Type == "weather" {
 			interval = 10 * time.Minute
 		}
@@ -110,13 +122,15 @@ func New(cfg *config.Config) *DashboardServer {
 		case "weather":
 			if sec.Weather != nil {
 				wf := fetcher.NewWeatherFetcher(sec.Weather.APIKey, sec.Weather.City, sec.Weather.Units, sec.Weather.BaseURL)
-				wf.SetName("weather")
+				wf.SetName(sec.ID)
 				srv.manager.RegisterWithBackoff(wf, interval, 5*time.Second, 1*time.Hour)
 			}
 		case "rss":
 			if sec.RSS != nil {
-				rf := fetcher.NewRSSFetcher("news", sec.RSS.URL)
-				rf.SetName("news")
+				rf := fetcher.NewRSSFetcher(sec.ID, sec.RSS.URL)
+				if namer, ok := interface{}(rf).(interface{ SetName(string) }); ok {
+					namer.SetName(sec.ID)
+				}
 				srv.manager.RegisterWithBackoff(rf, interval, 5*time.Second, 1*time.Hour)
 			}
 		case "calendar":
@@ -145,11 +159,11 @@ func New(cfg *config.Config) *DashboardServer {
 
 	mux.HandleFunc("/health", HealthHandler)
 	mux.HandleFunc("/dashboard", srv.DashboardHandler)
+	mux.HandleFunc("/dashboard/image", srv.ImageHandler)
 	mux.HandleFunc("/api/updates", srv.UpdateHandler)
 	mux.HandleFunc("/api/photos", srv.PhotosListHandler)
 	mux.HandleFunc("/assets/photos/", srv.AssetHandler)
 
-	// Serve static files from the "static" subdirectory of embedded FS
 	staticFS, err := fs.Sub(assets.FS, "static")
 	if err != nil {
 		panic(err)
@@ -173,20 +187,18 @@ func (s *DashboardServer) DashboardHandler(w http.ResponseWriter, r *http.Reques
 		BottomRight []config.Section
 	}{}
 
+	regionMap := map[string]*[]config.Section{
+		"top-left":     &layout.TopLeft,
+		"top-right":    &layout.TopRight,
+		"center":       &layout.Center,
+		"bottom-left":  &layout.BottomLeft,
+		"bottom-right": &layout.BottomRight,
+	}
+
 	for _, section := range s.config.Sections {
-		switch section.Region {
-		case "top-left":
-			layout.TopLeft = append(layout.TopLeft, section)
-		case "top-right":
-			layout.TopRight = append(layout.TopRight, section)
-		case "center":
-			layout.Center = append(layout.Center, section)
-		case "bottom-left":
-			layout.BottomLeft = append(layout.BottomLeft, section)
-		case "bottom-right":
-			layout.BottomRight = append(layout.BottomRight, section)
-		default:
-			// Default to center if unknown? Or maybe log warning.
+		if ptr, ok := regionMap[section.Region]; ok {
+			*ptr = append(*ptr, section)
+		} else {
 			layout.Center = append(layout.Center, section)
 		}
 	}
@@ -207,29 +219,23 @@ func (s *DashboardServer) DashboardHandler(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *DashboardServer) Start() error {
-	// Listen for OS signals
 	signal.Notify(s.stopCh, syscall.SIGINT, syscall.SIGTERM)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Launch listener for fetcher updates
 	go s.listenForUpdates(ctx)
 
-	// Start FetcherManager
 	go s.manager.Start(ctx)
 
-	// Run server in goroutine
 	go func() {
 		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("Server error", "error", err)
 		}
 	}()
 
-	// Wait for signal
 	<-s.stopCh
 
-	// Create shutdown context with timeout
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 

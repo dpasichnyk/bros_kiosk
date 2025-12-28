@@ -23,8 +23,8 @@ type ServerConfig struct {
 
 type UIConfig struct {
 	Locale      string `yaml:"locale"`
-	TimeFormat  string `yaml:"time_format"` // 12h or 24h
-	Orientation string `yaml:"orientation"` // landscape or portrait
+	TimeFormat  string `yaml:"time_format"`
+	Orientation string `yaml:"orientation"`
 }
 
 type SlideshowConfig struct {
@@ -37,13 +37,13 @@ type SlideshowConfig struct {
 
 type SourceConfig struct {
 	Type      string `yaml:"type"`
-	Path      string `yaml:"path"`       // For local
-	Bucket    string `yaml:"bucket"`     // For S3
-	Region    string `yaml:"region"`     // For S3
-	Prefix    string `yaml:"prefix"`     // For S3
-	AccessKey string `yaml:"access_key"` // For S3
-	SecretKey string `yaml:"secret_key"` // For S3
-	Endpoint  string `yaml:"endpoint"`   // For S3
+	Path      string `yaml:"path"`
+	Bucket    string `yaml:"bucket"`
+	Region    string `yaml:"region"`
+	Prefix    string `yaml:"prefix"`
+	AccessKey string `yaml:"access_key"`
+	SecretKey string `yaml:"secret_key"`
+	Endpoint  string `yaml:"endpoint"`
 }
 
 type Resolution struct {
@@ -88,7 +88,6 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
-	// Expand environment variables
 	expanded := os.ExpandEnv(string(data))
 
 	var cfg Config
@@ -123,22 +122,12 @@ func (c *Config) Validate() error {
 			if err != nil {
 				return fmt.Errorf("invalid interval '%s' for section '%s': %w", s.Interval, s.ID, err)
 			}
-			// Enforce minimums
 			if s.Type == "weather" {
 				if duration < 10*time.Minute {
 					return fmt.Errorf("interval '%s' for weather section '%s' is too short (minimum 10m)", s.Interval, s.ID)
 				}
 			} else if duration < 1*time.Minute {
-				// Sane minimum for other widgets to prevent spin loops
 				return fmt.Errorf("interval '%s' for section '%s' is too short (minimum 1m)", s.Interval, s.ID)
-			}
-		}
-
-		if s.Type == "weather" && s.Weather != nil {
-			if s.Weather.APIKey == "" {
-				// We allow empty API key, but maybe we should warn?
-				// Actually fetcher handles it gracefully (Setup Required state).
-				// So maybe just ensure City is set if we want strictness, but let's keep it loose for now.
 			}
 		}
 	}

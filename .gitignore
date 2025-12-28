@@ -1,3 +1,5 @@
 bin/
 coverage.out
 *.log
+kiosk_cache/
+internal/server/kiosk_cache/
